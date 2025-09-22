@@ -2,10 +2,11 @@ require("dotenv").config();
 
 const { Client, GatewayIntentBits } = require("discord.js");
 const axios = require("axios");
-const cheerio = require("cheerio");
-const TOKEN = "MTQxOTY3ODcwNTM1NzE2MDYwMA.Gazu6N.Xgd5zJ1D4_z7Y6tcELL4LsbMzhZ6hnpdNtmNFU";
 
-const puppeteer = require('puppeteer');
+const cheerio = require("cheerio");
+const TOKEN = process.env.DISCORD_TOKEN;
+
+
 
 const client = new Client({
   intents: [
@@ -15,39 +16,77 @@ const client = new Client({
   ]
 });
 
-const PATCH_NOTES_URL = 'https://overwatch.blizzard.com/en-us/news/patch-notes/';
+const PATCH_NOTES_JSON_URL = 'https://overwatch.blizzard.com/en-us/news/data/patch-notes.json';
 
-client.once('ready', () => console.log(`Logged in as ${client.user.tag}`));
+client.once('clientReady', () => console.log(`Logged in as ${client.user.tag}`));
 
 client.on('messageCreate', async (message) => {
-  if (message.author.bot) return;
+    if (message.content === '!patchnotesTank') {
+        try {
+            const response = await fetch('https://overwatch.blizzard.com/en-us/news/patch-notes/'); // Website to scrape
+            const html = await response.text();
 
-  if (message.content.toLowerCase() === '!patchnotes') {
-    try {
-      const browser = await puppeteer.launch();
-      const page = await browser.newPage();
-      await page.goto(PATCH_NOTES_URL, { waitUntil: 'networkidle0' });
+            const $ = cheerio.load(html);
 
-      // Extract latest patch title and date
-      const latestPatch = await page.$eval(
-        '.news-article__title',
-        el => el.textContent.trim()
-      );
-      const latestDate = await page.$eval(
-        '.news-article__date',
-        el => el.textContent.trim()
-      );
+            // Example: get the text inside a <div id="data">
+            const data = $('.PatchNotes-section.PatchNotes-section-hero_update').eq(0).text().trim();
 
-      await message.channel.send(
-        `**Latest Overwatch 2 Patch Notes**\n**${latestPatch}**\n*Published on ${latestDate}*\n${PATCH_NOTES_URL}`
-      );
-
-      await browser.close();
-    } catch (error) {
-      console.error(error);
-      await message.channel.send('⚠️ Could not fetch the latest patch notes.');
+            if (data) {
+                message.channel.send(`${data}`);
+            } else {
+                message.channel.send('Could not find the data!');
+            }
+        } catch (err) {
+            console.error(err);
+            message.channel.send('Failed to fetch the website.');
+        }
     }
-  }
+});
+
+client.on('messageCreate', async (message) => {
+    if (message.content === '!patchnotesDamage') {
+        try {
+            const response = await fetch('https://overwatch.blizzard.com/en-us/news/patch-notes/'); // Website to scrape
+            const html = await response.text();
+
+            const $ = cheerio.load(html);
+
+            // Example: get the text inside a <div id="data">
+            const data = $('.PatchNotes-section.PatchNotes-section-hero_update').eq(1).text().trim();
+
+            if (data) {
+                message.channel.send(`${data}`);
+            } else {
+                message.channel.send('Could not find the data!');
+            }
+        } catch (err) {
+            console.error(err);
+            message.channel.send('Failed to fetch the website.');
+        }
+    }
+});
+
+client.on('messageCreate', async (message) => {
+    if (message.content === '!patchnotesSupport') {
+        try {
+            const response = await fetch('https://overwatch.blizzard.com/en-us/news/patch-notes/'); // Website to scrape
+            const html = await response.text();
+
+            const $ = cheerio.load(html);
+
+            // Example: get the text inside a <div id="data">
+            const data = $('.PatchNotes-section.PatchNotes-section-hero_update').eq(2).text().trim();
+
+            if (data) {
+                message.channel.send(`${data}`);
+            } else {
+                message.channel.send('Could not find the data!');
+            }
+        } catch (err) {
+            console.error(err);
+            message.channel.send('Failed to fetch the website.');
+        }
+    }
 });
 
 client.login(TOKEN);
