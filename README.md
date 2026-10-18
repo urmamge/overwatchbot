@@ -1,6 +1,8 @@
 # overwatchbot
 discord bot for overwatch
 
+Fan-made bot, not affiliated with or endorsed by Blizzard Entertainment. Overwatch is a trademark of Blizzard Entertainment, Inc.
+
 ## Commands
 
 `/patchnotes` shows the newest Overwatch patch notes as embeds styled like the patch notes page, with buttons to turn pages and open the notes on Blizzard's site. Pick what to show with a subcommand:
