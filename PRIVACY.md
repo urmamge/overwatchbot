@@ -2,7 +2,7 @@
 
 Last updated: 18 October 2026
 
-This policy explains what information Overwatch Bot ("the bot") uses and what happens to it. The bot is run by Matthew Hearst. If you have a question, email contact@matthewhearst.com.
+This policy explains what information Overwatch Bot ("the bot") uses and what happens to it. The bot is run by urmamge Productions (Matthew Hearst). If you have a question, email contact@matthewhearst.com.
 
 The latest version of this policy is at https://matthewhearst.com/bots/overwatchbot/privacy-policy/
 
