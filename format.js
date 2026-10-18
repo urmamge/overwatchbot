@@ -118,7 +118,7 @@ function buildPages({ patch, entries }) {
 }
 
 // The message for one page, with buttons to turn pages and open the patch notes
-function renderPage({ key, pages, patch, note }, index) {
+function renderPage({ key, pages, patch }, index) {
     const buttons = [];
 
     if (pages.length > 1) {
@@ -144,7 +144,7 @@ function renderPage({ key, pages, patch, note }, index) {
     buttons.push(new ButtonBuilder().setLabel('Open patch notes').setStyle(ButtonStyle.Link).setURL(patch.url));
 
     return {
-        content: note ?? '',
+        content: '',
         embeds: pages[index],
         components: [new ActionRowBuilder().addComponents(buttons)]
     };

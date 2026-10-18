@@ -2,7 +2,7 @@ require("dotenv").config();
 
 const { Client, GatewayIntentBits, SlashCommandBuilder, ApplicationIntegrationType, InteractionContextType, MessageFlags, PermissionFlagsBits, ChannelType } = require("discord.js");
 
-const { findPatchNotes, getLatestPatches, getHeroes, normalizeName, HERO_FILTER_TYPES, MONTHS_TO_SEARCH } = require('./patchnotes');
+const { findPatchNotes, getLatestPatches, getHeroes, normalizeName, MONTHS_TO_SEARCH } = require('./patchnotes');
 const { buildPages, renderPage, ROLE_NAMES } = require('./format');
 const { startAutopost, getAnnouncement, getSubscription, subscribe, unsubscribe } = require('./autopost');
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -29,35 +29,52 @@ const TYPE_NAMES = {
     maps: 'map changes'
 };
 
-const patchnotesCommand = new SlashCommandBuilder()
-    .setName('patchnotes')
-    .setDescription('Show the latest Overwatch patch notes')
-    // Lets people add the bot to a server or to their own account, and use it in servers, DMs and group chats
-    .setIntegrationTypes(ApplicationIntegrationType.GuildInstall, ApplicationIntegrationType.UserInstall)
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM, InteractionContextType.PrivateChannel)
-    .addStringOption((option) => option
-        .setName('type')
-        .setDescription('Which kind of changes to show (default: Hero changes)')
-        .addChoices(
-            { name: 'Hero changes', value: 'heroes' },
-            { name: 'Stadium', value: 'stadium' },
-            { name: 'Hotfixes', value: 'hotfix' },
-            { name: 'Bug fixes', value: 'bugfixes' },
-            { name: 'General changes', value: 'general' },
-            { name: 'Map changes', value: 'maps' }
-        ))
-    .addStringOption((option) => option
+function roleOption(option) {
+    return option
         .setName('role')
         .setDescription('Only show heroes in this role')
         .addChoices(
             { name: 'Tank', value: 'tank' },
             { name: 'Damage', value: 'damage' },
             { name: 'Support', value: 'support' }
-        ))
-    .addStringOption((option) => option
+        );
+}
+
+const patchnotesCommand = new SlashCommandBuilder()
+    .setName('patchnotes')
+    .setDescription('Show the latest Overwatch patch notes')
+    // Lets people add the bot to a server or to their own account, and use it in servers, DMs and group chats
+    .setIntegrationTypes(ApplicationIntegrationType.GuildInstall, ApplicationIntegrationType.UserInstall)
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM, InteractionContextType.PrivateChannel)
+    // One subcommand per kind of change, so each only offers the options that make sense for it
+    .addSubcommand((subcommand) => subcommand
+        .setName('heroes')
+        .setDescription('The latest hero changes')
+        .addStringOption(roleOption))
+    .addSubcommand((subcommand) => subcommand
         .setName('hero')
-        .setDescription('Only show changes for this hero')
-        .setAutocomplete(true));
+        .setDescription('The latest changes for one hero')
+        .addStringOption((option) => option
+            .setName('name')
+            .setDescription('Which hero')
+            .setRequired(true)
+            .setAutocomplete(true)))
+    .addSubcommand((subcommand) => subcommand
+        .setName('stadium')
+        .setDescription('The latest Stadium changes')
+        .addStringOption(roleOption))
+    .addSubcommand((subcommand) => subcommand
+        .setName('hotfix')
+        .setDescription('The newest hotfix'))
+    .addSubcommand((subcommand) => subcommand
+        .setName('bugfixes')
+        .setDescription('The latest bug fixes'))
+    .addSubcommand((subcommand) => subcommand
+        .setName('general')
+        .setDescription('The latest changes that aren\'t about one hero, like events and modes'))
+    .addSubcommand((subcommand) => subcommand
+        .setName('maps')
+        .setDescription('The latest map changes'));
 
 const autopostCommand = new SlashCommandBuilder()
     .setName('autopost')
@@ -89,7 +106,6 @@ const sessions = new Map();
 
 // Describes what was searched for, e.g. "Stadium changes for Tank heroes"
 function describeQuery({ type, role, hero }) {
-    if (!HERO_FILTER_TYPES.has(type)) return TYPE_NAMES[type];
     if (hero) return `${TYPE_NAMES[type]} for ${hero}`;
     if (role) return `${TYPE_NAMES[type]} for ${ROLE_NAMES[role]} heroes`;
     return TYPE_NAMES[type];
@@ -118,10 +134,7 @@ async function showPatchNotes(interaction, query, ephemeral = false) {
         key: interaction.id,
         userId: interaction.user.id,
         pages: buildPages(result),
-        patch: result.patch,
-        note: !HERO_FILTER_TYPES.has(query.type) && (query.role || query.hero)
-            ? `Role and hero filters don't apply to ${TYPE_NAMES[query.type]}, so here's everything.`
-            : null
+        patch: result.patch
     };
 
     if (session.pages.length > 1) {
@@ -238,10 +251,12 @@ client.on('interactionCreate', async (interaction) => {
     try {
         if (interaction.isAutocomplete() && interaction.commandName === 'patchnotes') await handleHeroAutocomplete(interaction);
         else if (interaction.isChatInputCommand() && interaction.commandName === 'patchnotes') {
+            const subcommand = interaction.options.getSubcommand();
             await showPatchNotes(interaction, {
-                type: interaction.options.getString('type') ?? 'heroes',
+                // "/patchnotes hero" is hero changes for one hero, every other subcommand is its own type
+                type: subcommand === 'hero' ? 'heroes' : subcommand,
                 role: interaction.options.getString('role'),
-                hero: interaction.options.getString('hero')
+                hero: interaction.options.getString('name')
             });
         }
         else if (interaction.isChatInputCommand() && interaction.commandName === 'autopost') await handleAutopost(interaction);

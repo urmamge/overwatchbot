@@ -21,8 +21,6 @@ const TYPE_FILTERS = {
     general: (entry) => entry.group === 'core' && (entry.kind === 'update' || entry.kind === 'section') && !entry.intro,
     maps: (entry) => entry.kind === 'map'
 };
-// General and map changes aren't about one hero, so role and hero filters are ignored for them
-const HERO_FILTER_TYPES = new Set(['heroes', 'stadium', 'hotfix', 'bugfixes']);
 
 const cache = new Map();
 
@@ -153,21 +151,6 @@ function parseHero($, heroEl, section) {
     };
 }
 
-// Bug fix notes list heroes as bold names followed by their fixes, so split those into one entry per hero
-function splitHeroParagraphs($, descriptionEl, section) {
-    const heroes = [];
-    for (const node of descriptionEl.children) {
-        if (node.type !== 'tag') continue;
-
-        const isName = node.name === 'p' && $(node).children('strong').length
-            && $(node).text().trim() === $(node).children('strong').text().trim();
-        if (isName) heroes.push({ name: $(node).text().trim(), nodes: [] });
-        else if (heroes.length) heroes[heroes.length - 1].nodes.push(node);
-    }
-
-    return heroes.map((hero) => ({ ...section, kind: 'hero', split: true, name: hero.name, text: toMarkdown(hero.nodes) }));
-}
-
 function parsePatch($, patchEl) {
     const patch = $(patchEl);
     const anchor = patch.find('.anchor').attr('id') ?? '';
@@ -216,9 +199,6 @@ function parsePatch($, patchEl) {
                     devMarkdown($, update.find('.PatchNotesGeneralUpdate-dev'))
                 ])
             });
-            if (group === 'bugfix' && /^heroes$/i.test(updateTitle) && description) {
-                entries.push(...splitHeroParagraphs($, description, section));
-            }
         }
 
         for (const mapEl of sectionNode.find('.PatchNotesMapUpdate').toArray()) {
@@ -282,7 +262,6 @@ async function getLatestPatches() {
 // or only looks at one patch when given its id
 async function findPatchNotes({ type, role, hero, patchId }) {
     const heroes = new Map((await getHeroes().catch(() => [])).map((info) => [normalizeName(info.name), info]));
-    const filterHeroes = HERO_FILTER_TYPES.has(type) && (role || hero);
     let url = PATCH_NOTES_URL;
 
     for (let i = 0; i < MONTHS_TO_SEARCH && url; i++) {
@@ -299,9 +278,8 @@ async function findPatchNotes({ type, role, hero, patchId }) {
                     return { ...entry, role: entry.role ?? info?.role ?? null, icon: entry.icon ?? info?.portrait };
                 });
 
-            if (!filterHeroes) entries = entries.filter((entry) => !entry.split);
-            else if (hero) entries = entries.filter((entry) => entry.kind === 'hero' && normalizeName(entry.name) === normalizeName(hero));
-            else entries = entries.filter((entry) => entry.kind === 'hero' && entry.role === role);
+            if (hero) entries = entries.filter((entry) => entry.kind === 'hero' && normalizeName(entry.name) === normalizeName(hero));
+            else if (role) entries = entries.filter((entry) => entry.kind === 'hero' && entry.role === role);
 
             if (entries.length || patchId) return entries.length ? { patch, entries } : null;
         }
@@ -312,4 +290,4 @@ async function findPatchNotes({ type, role, hero, patchId }) {
     return null;
 }
 
-module.exports = { findPatchNotes, getLatestPatches, getHeroes, normalizeName, HERO_FILTER_TYPES, MONTHS_TO_SEARCH, PATCH_NOTES_URL };
+module.exports = { findPatchNotes, getLatestPatches, getHeroes, normalizeName, MONTHS_TO_SEARCH, PATCH_NOTES_URL };
