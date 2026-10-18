@@ -99,7 +99,7 @@ function statsFilters(subcommand) {
             ))
         .addStringOption((option) => option
             .setName('mode')
-            .setDescription('Quick Play or Competitive (Quick Play if left out)')
+            .setDescription('Quick Play or Competitive (Competitive if left out)')
             .addChoices(
                 { name: 'Quick Play', value: 'quickplay' },
                 { name: 'Competitive', value: 'competitive' }
@@ -108,7 +108,7 @@ function statsFilters(subcommand) {
             .setName('map')
             .setDescription('Only stats from this map (all maps if left out)')
             .setAutocomplete(true))
-        // Discord can't hide an option based on another one, so the rank suggestions only appear once mode is Competitive
+        // Discord can't hide an option based on another one, so the rank suggestions don't appear when mode is Quick Play
         .addStringOption((option) => option
             .setName('rank')
             .setDescription('Only stats from this rank (Competitive only, all ranks if left out)')
@@ -251,7 +251,7 @@ async function handleHeroAutocomplete(interaction) {
 // Suggests map names as the user types the map option, leaving out maps without stats for the picked mode
 async function handleMapAutocomplete(interaction) {
     const typed = normalizeName(interaction.options.getFocused());
-    const mode = MODES[interaction.options.getString('mode') ?? 'quickplay'];
+    const mode = MODES[interaction.options.getString('mode') ?? 'competitive'];
     const maps = await getMaps().catch(() => []);
 
     await interaction.respond(maps
@@ -261,10 +261,10 @@ async function handleMapAutocomplete(interaction) {
         .map((map) => ({ name: map.name, value: map.value })));
 }
 
-// Only suggests ranks once mode is Competitive, since Quick Play has no ranks
+// Only suggests ranks when mode is Competitive or left out, since Quick Play has no ranks
 async function handleRankAutocomplete(interaction) {
-    if (interaction.options.getString('mode') !== 'competitive') {
-        return interaction.respond([{ name: 'Set mode to Competitive first to pick a rank', value: 'needs-competitive' }]);
+    if (interaction.options.getString('mode') === 'quickplay') {
+        return interaction.respond([{ name: 'Ranks only work with Competitive, not Quick Play', value: 'needs-competitive' }]);
     }
 
     const typed = normalizeName(interaction.options.getFocused());
@@ -288,7 +288,7 @@ async function handleStats(interaction) {
     const filters = {
         input: interaction.options.getString('input', true),
         region: interaction.options.getString('region', true),
-        mode: interaction.options.getString('mode') ?? 'quickplay',
+        mode: interaction.options.getString('mode') ?? 'competitive',
         map: null,
         rank: null
     };

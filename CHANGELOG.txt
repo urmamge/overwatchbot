@@ -1,0 +1,38 @@
+OVERWATCHBOT CHANGELOG
+======================
+
+Version 3.0
+-----------
+Added statistics, including commands:
+  - /stats tank: the top 3 Tank heroes
+  - /stats damage: the top 3 Damage heroes
+  - /stats support: the top 3 Support heroes
+  - /stats hero: one hero's stats, with hero names suggested as you type
+
+Every /stats command shows win rate and pick rate, plus ban rate in Competitive, with these modifiers:
+  - input (required): Mouse & Keyboard or Controller
+  - region (required): Europe, Asia or Americas
+  - mode: Quick Play or Competitive (Competitive by default)
+  - map: any map on the hero stats page, suggested as you type
+  - rank: only works with Competitive
+  - sort (tank, damage and support only): rank the top 3 by win rate, pick rate or ban rate
+
+
+Version 2.0
+-----------
+Hosting online to run 24/7, added embeds, added extra commands:
+  - /patchnotes heroes: the latest hero changes, optionally for one role
+  - /patchnotes hero: the latest changes for one hero, with hero names suggested as you type
+  - /patchnotes stadium: the latest Stadium changes, optionally for one role
+  - /patchnotes hotfix: the newest hotfix
+  - /patchnotes bugfixes: the latest bug fixes
+  - /patchnotes general: the latest changes that aren't about one hero, like events and modes
+  - /patchnotes maps: the latest map changes
+  - /autopost on: post new patch notes in a channel automatically, optionally pinging a role
+  - /autopost off: stop auto-posting
+  - /autopost status: show where new patch notes are posted
+
+
+Version 1.0
+-----------
+Original

@@ -24,9 +24,9 @@ If the newest patch has nothing matching, the bot looks back through up to 6 mon
 
 Every subcommand needs `input:<Mouse & Keyboard|Controller>` and `region:<Europe|Asia|Americas>`, and can be narrowed down with:
 
-- `mode:<Quick Play|Competitive>` (Quick Play if left out)
+- `mode:<Quick Play|Competitive>` (Competitive if left out)
 - `map:<map>`, with suggestions as you type (all maps if left out)
-- `rank:<rank>`, which only works with `mode:Competitive` (all ranks if left out)
+- `rank:<rank>`, which only works in Competitive (all ranks if left out)
 
 `/autopost` posts new patch notes in a channel as soon as they're released (checked every 15 minutes). Each post sums up what changed, with buttons that show the full changes to whoever clicks them. It needs the bot to be in the server and the Manage Server permission to set up:
 
