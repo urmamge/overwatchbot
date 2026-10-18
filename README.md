@@ -25,6 +25,11 @@ If the newest patch has nothing matching, the bot looks back through up to 6 mon
 
 The channels are saved in `autopost.json` next to `index.js`, so keep that file when moving or redeploying the bot.
 
+## Privacy and terms
+
+- [Privacy Policy](PRIVACY.md) ([on the website](https://matthewhearst.com/bots/overwatchbot/privacy-policy/))
+- [Terms of Service](TERMS.md) ([on the website](https://matthewhearst.com/bots/overwatchbot/terms-of-service/))
+
 ## Running it
 
 1. Run `npm install`
