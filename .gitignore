@@ -1,2 +1,4 @@
 .env
 node_modules
+autopost.json
+autopost.json.tmp

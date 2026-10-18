@@ -234,6 +234,7 @@ function parsePatch($, patchEl) {
     }
 
     return {
+        id: anchor,
         title: patch.find('.PatchNotes-patchTitle').text().trim(),
         date: patch.find('.PatchNotes-date').text().trim(),
         url: year ? `${PATCH_NOTES_URL}live/${year}/${month}#${anchor}` : PATCH_NOTES_URL,
@@ -272,8 +273,14 @@ async function getHeroes() {
     return getParsedPage(HEROES_URL, parseHeroes, HEROES_CACHE_MS);
 }
 
-// Searches from the newest patch backwards and returns the first one with matching changes
-async function findPatchNotes({ type, role, hero }) {
+// The patches on the newest month's page, newest first
+async function getLatestPatches() {
+    return (await getParsedPage(PATCH_NOTES_URL, parseMonth)).patches;
+}
+
+// Searches from the newest patch backwards and returns the first one with matching changes,
+// or only looks at one patch when given its id
+async function findPatchNotes({ type, role, hero, patchId }) {
     const heroes = new Map((await getHeroes().catch(() => [])).map((info) => [normalizeName(info.name), info]));
     const filterHeroes = HERO_FILTER_TYPES.has(type) && (role || hero);
     let url = PATCH_NOTES_URL;
@@ -282,6 +289,8 @@ async function findPatchNotes({ type, role, hero }) {
         const month = await getParsedPage(url, parseMonth);
 
         for (const patch of month.patches) {
+            if (patchId && patch.id !== patchId) continue;
+
             let entries = patch.entries
                 .filter((entry) => TYPE_FILTERS[type](entry, patch))
                 .map((entry) => {
@@ -294,7 +303,7 @@ async function findPatchNotes({ type, role, hero }) {
             else if (hero) entries = entries.filter((entry) => entry.kind === 'hero' && normalizeName(entry.name) === normalizeName(hero));
             else entries = entries.filter((entry) => entry.kind === 'hero' && entry.role === role);
 
-            if (entries.length) return { patch, entries };
+            if (entries.length || patchId) return entries.length ? { patch, entries } : null;
         }
 
         url = month.previousUrl;
@@ -303,4 +312,4 @@ async function findPatchNotes({ type, role, hero }) {
     return null;
 }
 
-module.exports = { findPatchNotes, getHeroes, normalizeName, HERO_FILTER_TYPES, MONTHS_TO_SEARCH, PATCH_NOTES_URL };
+module.exports = { findPatchNotes, getLatestPatches, getHeroes, normalizeName, HERO_FILTER_TYPES, MONTHS_TO_SEARCH, PATCH_NOTES_URL };

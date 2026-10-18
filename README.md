@@ -18,6 +18,14 @@ Examples:
 - `/patchnotes hero:Juno` shows Juno's latest changes
 - `/patchnotes type:Bug fixes hero:Hanzo` shows Hanzo's latest bug fixes
 
+`/autopost` posts new patch notes in a channel as soon as they're released (checked every 15 minutes). Each post sums up what changed, with buttons that show the full changes to whoever clicks them. It needs the bot to be in the server and the Manage Server permission to set up:
+
+- `/autopost on channel:#patch-notes ping:@role` starts posting, optionally pinging a role
+- `/autopost off` stops posting
+- `/autopost status` shows where it's posting
+
+The channels are saved in `autopost.json` next to `index.js`, so keep that file when moving or redeploying the bot.
+
 ## Running it
 
 1. Run `npm install`

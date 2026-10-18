@@ -12,11 +12,14 @@ const COLORS = {
 };
 const ROLE_NAMES = { tank: 'Tank', damage: 'Damage', support: 'Support' };
 const GROUP_NAMES = { stadium: 'Stadium', bugfix: 'Bug Fixes' };
+const TYPE_LABELS = { heroes: 'Hero changes', stadium: 'Stadium', general: 'General changes', maps: 'Map changes', bugfixes: 'Bug fixes' };
 
 const DESCRIPTION_LIMIT = 4096; // Discord's limit for one embed's text
 const TITLE_LIMIT = 256;
 const MESSAGE_EMBED_LIMIT = 5800; // Discord allows 6000 characters across all embeds in a message
 const EMBEDS_PER_PAGE = 4; // More than this is a wall of text, especially on phones
+const FIELD_LIMIT = 1024; // Discord's limit for one embed field's text
+const BUTTONS_PER_ROW = 5;
 
 // Small label above the title, e.g. "Stadium · Tank" or "Support · Hero Updates"
 function entryLabel(entry) {
@@ -147,4 +150,56 @@ function renderPage({ key, pages, patch, note }, index) {
     };
 }
 
-module.exports = { buildPages, renderPage, ROLE_NAMES };
+function unique(items) {
+    return [...new Set(items.filter(Boolean))];
+}
+
+// Lists hero names by role, e.g. "**Tank:** Roadhog, D.Mon"
+function heroesByRole(entries) {
+    const heroes = entries.filter((entry) => entry.kind === 'hero');
+    return [...Object.keys(ROLE_NAMES), null]
+        .map((role) => {
+            const names = unique(heroes.filter((entry) => (entry.role ?? null) === role).map((entry) => entry.name));
+            return names.length ? `**${ROLE_NAMES[role] ?? 'Other'}:** ${names.join(', ')}` : null;
+        })
+        .filter(Boolean);
+}
+
+// One line summing up a kind of change, e.g. the hero names or the titles of the general updates
+function summarize(type, entries) {
+    const titles = unique(entries.filter((entry) => entry.kind !== 'hero').map((entry) => entry.title || entry.section));
+    if (type === 'maps') return unique(entries.map((entry) => entry.section)).join(', ');
+    if (type === 'heroes') return heroesByRole(entries).join('\n');
+    return [titles.join(', '), ...heroesByRole(entries)].filter(Boolean).join('\n');
+}
+
+// The post for a new patch: what changed at a glance, with a button to see each kind of change
+function buildAnnouncement(patch, sections, intro) {
+    const embed = new EmbedBuilder()
+        .setColor(patch.isHotfix ? COLORS.damage : COLORS.general)
+        .setAuthor({ name: patch.isHotfix ? 'New Overwatch hotfix' : 'New Overwatch patch notes' })
+        .setTitle(truncate(patch.title, TITLE_LIMIT))
+        .setURL(patch.url)
+        .setFooter({ text: 'Use the buttons to see the full changes' });
+
+    if (intro) embed.setDescription(truncate(intro, DESCRIPTION_LIMIT));
+    for (const { type, entries } of sections) {
+        const value = summarize(type, entries);
+        if (value) embed.addFields({ name: TYPE_LABELS[type], value: truncate(value, FIELD_LIMIT) });
+    }
+
+    const buttons = sections.map(({ type }) => new ButtonBuilder()
+        .setCustomId(`autopost:${patch.id}:${type}`)
+        .setLabel(TYPE_LABELS[type])
+        .setStyle(ButtonStyle.Primary));
+    buttons.push(new ButtonBuilder().setLabel('Open patch notes').setStyle(ButtonStyle.Link).setURL(patch.url));
+
+    const components = [];
+    for (let i = 0; i < buttons.length; i += BUTTONS_PER_ROW) {
+        components.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + BUTTONS_PER_ROW)));
+    }
+
+    return { embeds: [embed], components };
+}
+
+module.exports = { buildPages, renderPage, buildAnnouncement, ROLE_NAMES };

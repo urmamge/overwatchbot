@@ -1,9 +1,10 @@
 require("dotenv").config();
 
-const { Client, GatewayIntentBits, SlashCommandBuilder, ApplicationIntegrationType, InteractionContextType, MessageFlags } = require("discord.js");
+const { Client, GatewayIntentBits, SlashCommandBuilder, ApplicationIntegrationType, InteractionContextType, MessageFlags, PermissionFlagsBits, ChannelType } = require("discord.js");
 
-const { findPatchNotes, getHeroes, normalizeName, HERO_FILTER_TYPES, MONTHS_TO_SEARCH } = require('./patchnotes');
+const { findPatchNotes, getLatestPatches, getHeroes, normalizeName, HERO_FILTER_TYPES, MONTHS_TO_SEARCH } = require('./patchnotes');
 const { buildPages, renderPage, ROLE_NAMES } = require('./format');
+const { startAutopost, getAnnouncement, getSubscription, subscribe, unsubscribe } = require('./autopost');
 const TOKEN = process.env.DISCORD_TOKEN;
 
 
@@ -17,6 +18,7 @@ const client = new Client({
 
 const SESSION_MS = 15 * 60 * 1000; // Page buttons stop working after 15 minutes
 const AUTOCOMPLETE_LIMIT = 25; // Discord shows at most 25 suggestions
+const POST_PERMISSIONS = ['ViewChannel', 'SendMessages', 'EmbedLinks']; // What the bot needs to post in a channel
 
 const TYPE_NAMES = {
     heroes: 'hero changes',
@@ -57,7 +59,32 @@ const patchnotesCommand = new SlashCommandBuilder()
         .setDescription('Only show changes for this hero')
         .setAutocomplete(true));
 
-// Page lists for replies with page buttons, keyed by the command's interaction id
+const autopostCommand = new SlashCommandBuilder()
+    .setName('autopost')
+    .setDescription('Post new Overwatch patch notes in a channel automatically')
+    // Posting needs the bot to be in the server, and only server managers can set it up
+    .setIntegrationTypes(ApplicationIntegrationType.GuildInstall)
+    .setContexts(InteractionContextType.Guild)
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((subcommand) => subcommand
+        .setName('on')
+        .setDescription('Start posting new patch notes in a channel')
+        .addChannelOption((option) => option
+            .setName('channel')
+            .setDescription('Where to post new patch notes')
+            .setRequired(true)
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement))
+        .addRoleOption((option) => option
+            .setName('ping')
+            .setDescription('A role to ping when new patch notes are posted')))
+    .addSubcommand((subcommand) => subcommand
+        .setName('off')
+        .setDescription('Stop posting new patch notes in this server'))
+    .addSubcommand((subcommand) => subcommand
+        .setName('status')
+        .setDescription('Show where new patch notes are posted'));
+
+// Page lists for replies with page buttons, keyed by the interaction id that made them
 const sessions = new Map();
 
 // Describes what was searched for, e.g. "Stadium changes for Tank heroes"
@@ -68,15 +95,10 @@ function describeQuery({ type, role, hero }) {
     return TYPE_NAMES[type];
 }
 
-async function handlePatchNotes(interaction) {
-    const query = {
-        type: interaction.options.getString('type') ?? 'heroes',
-        role: interaction.options.getString('role'),
-        hero: interaction.options.getString('hero')
-    };
-
+// Replies with the matching patch notes, split into pages with buttons when they're long
+async function showPatchNotes(interaction, query, ephemeral = false) {
     // Discord needs a reply within 3 seconds, and the scrape can take longer
-    await interaction.deferReply();
+    await interaction.deferReply(ephemeral ? { flags: MessageFlags.Ephemeral } : {});
 
     if (query.hero) {
         const heroes = await getHeroes().catch(() => []);
@@ -87,7 +109,9 @@ async function handlePatchNotes(interaction) {
 
     const result = await findPatchNotes(query);
     if (!result) {
-        return interaction.editReply(`Couldn't find any ${describeQuery(query)} in the last ${MONTHS_TO_SEARCH} months of patch notes.`);
+        return interaction.editReply(query.patchId
+            ? 'Those changes are no longer on the patch notes page.'
+            : `Couldn't find any ${describeQuery(query)} in the last ${MONTHS_TO_SEARCH} months of patch notes.`);
     }
 
     const session = {
@@ -122,6 +146,12 @@ async function handlePageButton(interaction) {
     await interaction.update(renderPage(session, Number(page)));
 }
 
+// The buttons on an auto-posted patch show that patch's changes to whoever clicks, without cluttering the channel
+async function handleAnnouncementButton(interaction) {
+    const [, patchId, type] = interaction.customId.split(':');
+    await showPatchNotes(interaction, { type, patchId }, true);
+}
+
 // Suggests hero names as the user types the hero option
 async function handleHeroAutocomplete(interaction) {
     const typed = normalizeName(interaction.options.getFocused());
@@ -134,22 +164,89 @@ async function handleHeroAutocomplete(interaction) {
         .map((info) => ({ name: `${info.name} (${ROLE_NAMES[info.role]})`, value: info.name })));
 }
 
+async function handleAutopost(interaction) {
+    // A bot installed only to someone's account isn't in the server, so it can't post there
+    if (!interaction.inCachedGuild()) {
+        return interaction.reply({ content: 'Add the bot to this server first, then run /autopost again.', flags: MessageFlags.Ephemeral });
+    }
+
+    const subcommand = interaction.options.getSubcommand();
+
+    if (subcommand === 'status') {
+        const subscription = getSubscription(interaction.guildId);
+        return interaction.reply({
+            content: subscription
+                ? `New patch notes are posted in <#${subscription.channelId}>${subscription.roleId ? ` and ping <@&${subscription.roleId}>` : ''}.`
+                : 'Auto-posting is off. Use /autopost on to pick a channel.',
+            allowedMentions: { parse: [] },
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    if (subcommand === 'off') {
+        return interaction.reply({
+            content: unsubscribe(interaction.guildId) ? 'Stopped posting new patch notes.' : 'Auto-posting was already off.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const channel = interaction.options.getChannel('channel', true);
+    const role = interaction.options.getRole('ping');
+    const me = interaction.guild.members.me ?? await interaction.guild.members.fetchMe();
+    const permissions = channel.permissionsFor(me);
+
+    const missing = POST_PERMISSIONS.filter((permission) => !permissions.has(permission));
+    if (missing.length) {
+        return interaction.reply({
+            content: `I need these permissions in ${channel} first: ${missing.join(', ')}.`,
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    subscribe(interaction.guildId, channel.id, role?.id ?? null);
+
+    const lines = [`Done! New patch notes will be posted in ${channel}${role ? ` and ping ${role}` : ''}.`];
+    if (role && !role.mentionable && !permissions.has('MentionEveryone')) {
+        lines.push(`${role} can't be pinged by me yet. Make it mentionable in its role settings, or give me the Mention Everyone permission.`);
+    }
+
+    // Shows what a post looks like using the newest patch
+    const [latest] = await getLatestPatches().catch(() => []);
+    const preview = latest ? await getAnnouncement(latest).catch(() => null) : null;
+    if (preview) lines.push('Here\'s what the newest patch would have looked like:');
+
+    await interaction.editReply({ content: lines.join('\n'), allowedMentions: { parse: [] }, ...preview });
+}
+
 client.once('clientReady', async () => {
     console.log(`Logged in as ${client.user.tag}`);
 
-    // Registers /patchnotes for every server (the first time, it can take a few minutes to show up)
-    await client.application.commands.set([patchnotesCommand]);
-    console.log('Registered /patchnotes');
+    // Registers the commands for every server (the first time, they can take a few minutes to show up)
+    await client.application.commands.set([patchnotesCommand, autopostCommand]);
+    console.log('Registered /patchnotes and /autopost');
 
     // Downloads the hero list now so the first autocomplete answers within Discord's 3 second limit
     getHeroes().catch(console.error);
+    startAutopost(client);
 });
+
+// Stops trying to post in servers the bot was removed from
+client.on('guildDelete', (guild) => unsubscribe(guild.id));
 
 client.on('interactionCreate', async (interaction) => {
     try {
         if (interaction.isAutocomplete() && interaction.commandName === 'patchnotes') await handleHeroAutocomplete(interaction);
-        else if (interaction.isChatInputCommand() && interaction.commandName === 'patchnotes') await handlePatchNotes(interaction);
+        else if (interaction.isChatInputCommand() && interaction.commandName === 'patchnotes') {
+            await showPatchNotes(interaction, {
+                type: interaction.options.getString('type') ?? 'heroes',
+                role: interaction.options.getString('role'),
+                hero: interaction.options.getString('hero')
+            });
+        }
+        else if (interaction.isChatInputCommand() && interaction.commandName === 'autopost') await handleAutopost(interaction);
         else if (interaction.isButton() && interaction.customId.startsWith('patchnotes:')) await handlePageButton(interaction);
+        else if (interaction.isButton() && interaction.customId.startsWith('autopost:')) await handleAnnouncementButton(interaction);
     } catch (err) {
         console.error(err);
         if (interaction.deferred) await interaction.editReply('Failed to fetch the patch notes.').catch(console.error);
