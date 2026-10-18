@@ -290,4 +290,4 @@ async function findPatchNotes({ type, role, hero, patchId }) {
     return null;
 }
 
-module.exports = { findPatchNotes, getLatestPatches, getHeroes, normalizeName, MONTHS_TO_SEARCH, PATCH_NOTES_URL };
+module.exports = { findPatchNotes, getLatestPatches, getHeroes, getParsedPage, normalizeName, MONTHS_TO_SEARCH, PATCH_NOTES_URL, SITE_URL };

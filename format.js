@@ -12,6 +12,7 @@ const COLORS = {
 };
 const ROLE_NAMES = { tank: 'Tank', damage: 'Damage', support: 'Support' };
 const GROUP_NAMES = { stadium: 'Stadium', bugfix: 'Bug Fixes' };
+const RATE_NAMES = { winrate: 'win rate', pickrate: 'pick rate', banrate: 'ban rate' };
 const TYPE_LABELS = { heroes: 'Hero changes', stadium: 'Stadium', general: 'General changes', maps: 'Map changes', bugfixes: 'Bug fixes' };
 
 const DESCRIPTION_LIMIT = 4096; // Discord's limit for one embed's text
@@ -202,4 +203,41 @@ function buildAnnouncement(patch, sections, intro) {
     return { embeds: [embed], components };
 }
 
-module.exports = { buildPages, renderPage, buildAnnouncement, ROLE_NAMES };
+// Quick Play has no bans, so its ban rate is always 0 and is left out
+function rateLine(hero, mode) {
+    const rates = [`**${hero.winrate}%** win rate`, `**${hero.pickrate}%** pick rate`];
+    if (mode === 'competitive') rates.push(`**${hero.banrate}%** ban rate`);
+    return rates.join(' · ');
+}
+
+// The message for /stats, with a button to open the stats page with the same filters
+function statsMessage(embed, { url, footer }) {
+    embed.setURL(url).setFooter({ text: footer });
+    const button = new ButtonBuilder().setLabel('Open hero stats').setStyle(ButtonStyle.Link).setURL(url);
+    return { embeds: [embed], components: [new ActionRowBuilder().addComponents(button)] };
+}
+
+// The heroes in a role with the highest of one rate, with the best one's portrait
+function buildTopHeroes(role, heroes, sort, details) {
+    const embed = new EmbedBuilder()
+        .setColor(COLORS[role])
+        .setAuthor({ name: 'Hero stats' })
+        .setTitle(`Top ${heroes.length} ${ROLE_NAMES[role]} heroes by ${RATE_NAMES[sort]}`)
+        .setDescription(heroes.map((hero, i) => `**${i + 1}. ${hero.name}**\n${rateLine(hero, details.mode)}`).join('\n\n'))
+        .setThumbnail(heroes[0].portrait);
+
+    return statsMessage(embed, details);
+}
+
+function buildHeroStats(hero, details) {
+    const embed = new EmbedBuilder()
+        .setColor(COLORS[hero.role])
+        .setAuthor({ name: `Hero stats · ${ROLE_NAMES[hero.role]}` })
+        .setTitle(hero.name)
+        .setDescription(rateLine(hero, details.mode))
+        .setThumbnail(hero.portrait);
+
+    return statsMessage(embed, details);
+}
+
+module.exports = { buildPages, renderPage, buildAnnouncement, buildTopHeroes, buildHeroStats, ROLE_NAMES };

@@ -17,6 +17,17 @@ Fan-made bot, not affiliated with or endorsed by Blizzard Entertainment. Overwat
 
 If the newest patch has nothing matching, the bot looks back through up to 6 months of patch notes.
 
+`/stats` shows win rates and pick rates from Blizzard's [hero stats page](https://overwatch.blizzard.com/en-us/rates/), plus ban rates in Competitive:
+
+- `/stats tank`, `/stats damage` and `/stats support` show the top 3 heroes in that role, ranked by `sort:<Win rate|Pick rate|Ban rate>` (win rate if left out, ban rate only in Competitive)
+- `/stats hero name:<hero>` shows one hero's stats, with suggestions as you type
+
+Every subcommand needs `input:<Mouse & Keyboard|Controller>` and `region:<Europe|Asia|Americas>`, and can be narrowed down with:
+
+- `mode:<Quick Play|Competitive>` (Quick Play if left out)
+- `map:<map>`, with suggestions as you type (all maps if left out)
+- `rank:<rank>`, which only works with `mode:Competitive` (all ranks if left out)
+
 `/autopost` posts new patch notes in a channel as soon as they're released (checked every 15 minutes). Each post sums up what changed, with buttons that show the full changes to whoever clicks them. It needs the bot to be in the server and the Manage Server permission to set up:
 
 - `/autopost on channel:#patch-notes ping:@role` starts posting, optionally pinging a role

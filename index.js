@@ -3,7 +3,8 @@ require("dotenv").config();
 const { Client, GatewayIntentBits, SlashCommandBuilder, ApplicationIntegrationType, InteractionContextType, MessageFlags, PermissionFlagsBits, ChannelType } = require("discord.js");
 
 const { findPatchNotes, getLatestPatches, getHeroes, normalizeName, MONTHS_TO_SEARCH } = require('./patchnotes');
-const { buildPages, renderPage, ROLE_NAMES } = require('./format');
+const { buildPages, renderPage, buildTopHeroes, buildHeroStats, ROLE_NAMES } = require('./format');
+const { getMaps, findMap, getTopHeroes, getHeroStats, statsPageUrl, MODES, INPUT_NAMES, REGION_NAMES, MODE_NAMES, RANK_NAMES } = require('./stats');
 const { startAutopost, getAnnouncement, getSubscription, subscribe, unsubscribe } = require('./autopost');
 const TOKEN = process.env.DISCORD_TOKEN;
 
@@ -75,6 +76,76 @@ const patchnotesCommand = new SlashCommandBuilder()
     .addSubcommand((subcommand) => subcommand
         .setName('maps')
         .setDescription('The latest map changes'));
+
+// The filters every /stats subcommand takes. Discord needs required options before optional ones
+function statsFilters(subcommand) {
+    return subcommand
+        .addStringOption((option) => option
+            .setName('input')
+            .setDescription('Stats from players on this input')
+            .setRequired(true)
+            .addChoices(
+                { name: 'Mouse & Keyboard', value: 'pc' },
+                { name: 'Controller', value: 'controller' }
+            ))
+        .addStringOption((option) => option
+            .setName('region')
+            .setDescription('Stats from players in this region')
+            .setRequired(true)
+            .addChoices(
+                { name: 'Europe', value: 'europe' },
+                { name: 'Asia', value: 'asia' },
+                { name: 'Americas', value: 'americas' }
+            ))
+        .addStringOption((option) => option
+            .setName('mode')
+            .setDescription('Quick Play or Competitive (Quick Play if left out)')
+            .addChoices(
+                { name: 'Quick Play', value: 'quickplay' },
+                { name: 'Competitive', value: 'competitive' }
+            ))
+        .addStringOption((option) => option
+            .setName('map')
+            .setDescription('Only stats from this map (all maps if left out)')
+            .setAutocomplete(true))
+        // Discord can't hide an option based on another one, so the rank suggestions only appear once mode is Competitive
+        .addStringOption((option) => option
+            .setName('rank')
+            .setDescription('Only stats from this rank (Competitive only, all ranks if left out)')
+            .setAutocomplete(true));
+}
+
+// A role's top 3, with the filters plus which rate to rank them by
+function roleStats(subcommand, role) {
+    return statsFilters(subcommand
+        .setName(role)
+        .setDescription(`The top 3 ${ROLE_NAMES[role]} heroes`))
+        .addStringOption((option) => option
+            .setName('sort')
+            .setDescription('Which rate to rank the heroes by (win rate if left out)')
+            .addChoices(
+                { name: 'Win rate', value: 'winrate' },
+                { name: 'Pick rate', value: 'pickrate' },
+                { name: 'Ban rate (Competitive only)', value: 'banrate' }
+            ));
+}
+
+const statsCommand = new SlashCommandBuilder()
+    .setName('stats')
+    .setDescription('Show hero win, pick and ban rates from the Overwatch hero stats page')
+    .setIntegrationTypes(ApplicationIntegrationType.GuildInstall, ApplicationIntegrationType.UserInstall)
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM, InteractionContextType.PrivateChannel)
+    .addSubcommand((subcommand) => roleStats(subcommand, 'tank'))
+    .addSubcommand((subcommand) => roleStats(subcommand, 'damage'))
+    .addSubcommand((subcommand) => roleStats(subcommand, 'support'))
+    .addSubcommand((subcommand) => statsFilters(subcommand
+        .setName('hero')
+        .setDescription('One hero\'s win, pick and ban rates')
+        .addStringOption((option) => option
+            .setName('name')
+            .setDescription('Which hero')
+            .setRequired(true)
+            .setAutocomplete(true))));
 
 const autopostCommand = new SlashCommandBuilder()
     .setName('autopost')
@@ -177,6 +248,93 @@ async function handleHeroAutocomplete(interaction) {
         .map((info) => ({ name: `${info.name} (${ROLE_NAMES[info.role]})`, value: info.name })));
 }
 
+// Suggests map names as the user types the map option, leaving out maps without stats for the picked mode
+async function handleMapAutocomplete(interaction) {
+    const typed = normalizeName(interaction.options.getFocused());
+    const mode = MODES[interaction.options.getString('mode') ?? 'quickplay'];
+    const maps = await getMaps().catch(() => []);
+
+    await interaction.respond(maps
+        .filter((map) => map.modes.includes(mode) && normalizeName(map.name).includes(typed))
+        .sort((a, b) => normalizeName(b.name).startsWith(typed) - normalizeName(a.name).startsWith(typed))
+        .slice(0, AUTOCOMPLETE_LIMIT)
+        .map((map) => ({ name: map.name, value: map.value })));
+}
+
+// Only suggests ranks once mode is Competitive, since Quick Play has no ranks
+async function handleRankAutocomplete(interaction) {
+    if (interaction.options.getString('mode') !== 'competitive') {
+        return interaction.respond([{ name: 'Set mode to Competitive first to pick a rank', value: 'needs-competitive' }]);
+    }
+
+    const typed = normalizeName(interaction.options.getFocused());
+    await interaction.respond(Object.entries(RANK_NAMES)
+        .filter(([, name]) => normalizeName(name).includes(typed))
+        .map(([value, name]) => ({ name, value })));
+}
+
+function handleStatsAutocomplete(interaction) {
+    const focused = interaction.options.getFocused(true).name;
+    if (focused === 'map') return handleMapAutocomplete(interaction);
+    if (focused === 'rank') return handleRankAutocomplete(interaction);
+    return handleHeroAutocomplete(interaction);
+}
+
+// Replies with the top 3 heroes in a role, or one hero's stats for "/stats hero"
+async function handleStats(interaction) {
+    await interaction.deferReply();
+
+    const subcommand = interaction.options.getSubcommand();
+    const filters = {
+        input: interaction.options.getString('input', true),
+        region: interaction.options.getString('region', true),
+        mode: interaction.options.getString('mode') ?? 'quickplay',
+        map: null,
+        rank: null
+    };
+
+    const typedMap = interaction.options.getString('map');
+    if (typedMap) {
+        filters.map = await findMap(typedMap);
+        if (!filters.map) return interaction.editReply(`I don't know a map called "${typedMap}". Pick one from the list as you type.`);
+        if (!filters.map.modes.includes(MODES[filters.mode])) return interaction.editReply(`There are no ${MODE_NAMES[filters.mode]} stats for ${filters.map.name}.`);
+    }
+
+    // A rank typed without picking a suggestion is matched by name, so "gm" or "Gold" still work
+    const typedRank = interaction.options.getString('rank');
+    if (typedRank) {
+        if (filters.mode !== 'competitive') return interaction.editReply('Ranks only work with Competitive. Set mode to Competitive to pick a rank.');
+        filters.rank = Object.keys(RANK_NAMES).find((value) => value === typedRank || normalizeName(RANK_NAMES[value]).startsWith(normalizeName(typedRank))) ?? null;
+        if (!filters.rank) return interaction.editReply(`I don't know a rank called "${typedRank}". Pick one from the list as you type.`);
+    }
+
+    const details = {
+        mode: filters.mode,
+        url: statsPageUrl(filters),
+        footer: [
+            INPUT_NAMES[filters.input],
+            REGION_NAMES[filters.region],
+            MODE_NAMES[filters.mode],
+            filters.mode === 'competitive' ? RANK_NAMES[filters.rank] ?? 'All Ranks' : null,
+            filters.map?.name ?? 'All Maps'
+        ].filter(Boolean).join(' · ')
+    };
+
+    if (subcommand !== 'hero') {
+        const sort = interaction.options.getString('sort') ?? 'winrate';
+        if (sort === 'banrate' && filters.mode !== 'competitive') return interaction.editReply('Quick Play has no bans. Set mode to Competitive to sort by ban rate.');
+
+        const heroes = await getTopHeroes(filters, subcommand, sort);
+        if (!heroes.length) return interaction.editReply(`The stats page has no ${ROLE_NAMES[subcommand]} stats for these filters right now.`);
+        return interaction.editReply(buildTopHeroes(subcommand, heroes, sort, details));
+    }
+
+    const name = interaction.options.getString('name', true);
+    const hero = await getHeroStats(filters, name);
+    if (!hero) return interaction.editReply(`The stats page has no stats for a hero called "${name}" with these filters. Pick one from the list as you type.`);
+    await interaction.editReply(buildHeroStats(hero, details));
+}
+
 async function handleAutopost(interaction) {
     // A bot installed only to someone's account isn't in the server, so it can't post there
     if (!interaction.inCachedGuild()) {
@@ -236,11 +394,12 @@ client.once('clientReady', async () => {
     console.log(`Logged in as ${client.user.tag}`);
 
     // Registers the commands for every server (the first time, they can take a few minutes to show up)
-    await client.application.commands.set([patchnotesCommand, autopostCommand]);
-    console.log('Registered /patchnotes and /autopost');
+    await client.application.commands.set([patchnotesCommand, statsCommand, autopostCommand]);
+    console.log('Registered /patchnotes, /stats and /autopost');
 
-    // Downloads the hero list now so the first autocomplete answers within Discord's 3 second limit
+    // Downloads the hero and map lists now so the first autocomplete answers within Discord's 3 second limit
     getHeroes().catch(console.error);
+    getMaps().catch(console.error);
     startAutopost(client);
 });
 
@@ -250,6 +409,8 @@ client.on('guildDelete', (guild) => unsubscribe(guild.id));
 client.on('interactionCreate', async (interaction) => {
     try {
         if (interaction.isAutocomplete() && interaction.commandName === 'patchnotes') await handleHeroAutocomplete(interaction);
+        else if (interaction.isAutocomplete() && interaction.commandName === 'stats') await handleStatsAutocomplete(interaction);
+        else if (interaction.isChatInputCommand() && interaction.commandName === 'stats') await handleStats(interaction);
         else if (interaction.isChatInputCommand() && interaction.commandName === 'patchnotes') {
             const subcommand = interaction.options.getSubcommand();
             await showPatchNotes(interaction, {
@@ -264,7 +425,8 @@ client.on('interactionCreate', async (interaction) => {
         else if (interaction.isButton() && interaction.customId.startsWith('autopost:')) await handleAnnouncementButton(interaction);
     } catch (err) {
         console.error(err);
-        if (interaction.deferred) await interaction.editReply('Failed to fetch the patch notes.').catch(console.error);
+        const what = interaction.commandName === 'stats' ? 'hero stats' : 'patch notes';
+        if (interaction.deferred) await interaction.editReply(`Failed to fetch the ${what}.`).catch(console.error);
     }
 });
 
