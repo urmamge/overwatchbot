@@ -1,6 +1,6 @@
 require("dotenv").config();
 
-const { Client, GatewayIntentBits, SlashCommandBuilder } = require("discord.js");
+const { Client, GatewayIntentBits, SlashCommandBuilder, ApplicationIntegrationType, InteractionContextType } = require("discord.js");
 
 const cheerio = require("cheerio");
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -21,6 +21,9 @@ const CACHE_MS = 15 * 60 * 1000; // Download the website at most once every 15 m
 const patchnotesCommand = new SlashCommandBuilder()
     .setName('patchnotes')
     .setDescription('Show the latest Overwatch hero changes for a role')
+    // Lets people add the bot to a server or to their own account, and use it in servers, DMs and group chats
+    .setIntegrationTypes(ApplicationIntegrationType.GuildInstall, ApplicationIntegrationType.UserInstall)
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM, InteractionContextType.PrivateChannel)
     .addStringOption((option) => option
         .setName('role')
         .setDescription('Which role to show')
