@@ -1,29 +1,54 @@
 require("dotenv").config();
 
-const { Client, GatewayIntentBits } = require("discord.js");
+const { Client, GatewayIntentBits, SlashCommandBuilder } = require("discord.js");
 
 const cheerio = require("cheerio");
 const TOKEN = process.env.DISCORD_TOKEN;
 
 
 
+// Slash commands don't need to read messages, so only the Guilds intent is required
 const client = new Client({
   intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.Guilds
   ]
 });
 
 const PATCH_NOTES_URL = 'https://overwatch.blizzard.com/en-us/news/patch-notes/'; // Website to scrape
 const MESSAGE_LIMIT = 1900; // Discord rejects messages over 2000 characters
+const CACHE_MS = 15 * 60 * 1000; // Download the website at most once every 15 minutes
+
+const patchnotesCommand = new SlashCommandBuilder()
+    .setName('patchnotes')
+    .setDescription('Show the latest Overwatch hero changes for a role')
+    .addStringOption((option) => option
+        .setName('role')
+        .setDescription('Which role to show')
+        .setRequired(true)
+        .addChoices(
+            { name: 'Tank', value: 'Tank' },
+            { name: 'Damage', value: 'Damage' },
+            { name: 'Support', value: 'Support' }
+        ));
+
+let cachedHtml = null;
+let cachedAt = 0;
+
+// Reuses the last download so lots of servers using the bot don't flood Blizzard's website
+async function getPatchNotesPage() {
+    if (cachedHtml && Date.now() - cachedAt < CACHE_MS) return cachedHtml;
+
+    const response = await fetch(PATCH_NOTES_URL);
+    if (!response.ok) throw new Error(`Patch notes page returned ${response.status}`);
+
+    cachedHtml = await response.text();
+    cachedAt = Date.now();
+    return cachedHtml;
+}
 
 // Finds the newest patch with a hero update section titled with the given role
 async function getRoleNotes(role) {
-    const response = await fetch(PATCH_NOTES_URL);
-    const html = await response.text();
-
-    const $ = cheerio.load(html);
+    const $ = cheerio.load(await getPatchNotesPage());
 
     for (const patch of $('.PatchNotes-patch').toArray()) {
         const section = $(patch)
@@ -68,26 +93,40 @@ function splitMessage(text) {
     return chunks;
 }
 
-client.once('clientReady', () => console.log(`Logged in as ${client.user.tag}`));
+client.once('clientReady', async () => {
+    console.log(`Logged in as ${client.user.tag}`);
 
-client.on('messageCreate', async (message) => {
-    const match = message.content.match(/^!patchnotes(Tank|Damage|Support)$/);
-    if (!match) return;
+    // Registers /patchnotes for every server (the first time, it can take a few minutes to show up)
+    await client.application.commands.set([patchnotesCommand]);
+    console.log('Registered /patchnotes');
+});
+
+client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isChatInputCommand() || interaction.commandName !== 'patchnotes') return;
+
+    // Discord needs a reply within 3 seconds, and the scrape can take longer
+    await interaction.deferReply();
 
     try {
-        const data = await getRoleNotes(match[1]);
+        const data = await getRoleNotes(interaction.options.getString('role', true));
 
         if (data) {
-            for (const chunk of splitMessage(data)) {
-                await message.channel.send(chunk);
+            const [first, ...rest] = splitMessage(data);
+            await interaction.editReply(first);
+            for (const chunk of rest) {
+                await interaction.followUp(chunk);
             }
         } else {
-            message.channel.send('Could not find the data!');
+            await interaction.editReply('Could not find the data!');
         }
     } catch (err) {
         console.error(err);
-        message.channel.send('Failed to fetch the website.');
+        await interaction.editReply('Failed to fetch the website.').catch(console.error);
     }
 });
+
+// Log errors instead of letting them crash the bot
+client.on('error', console.error);
+process.on('unhandledRejection', console.error);
 
 client.login(TOKEN);
